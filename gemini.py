@@ -1,5 +1,5 @@
 # =============================================================================
-# PWM SIGNAL SIMULATOR DASHBOARD - ULTIMATE PHYSICS EDITION (VERIFIED)
+# PWM SIGNAL SIMULATOR DASHBOARD - ULTIMATE PHYSICS EDITION
 # =============================================================================
 
 import streamlit as st
@@ -76,12 +76,11 @@ def get_device_response(device, vin, dt, time_duration_s, R_cap=1000, C_cap=10e-
         
     elif device == "heater":
         temp = np.full_like(vin, 25.0)
-        # FIX: Dynamically scale thermal tau based on time window to GUARANTEE an exponential curve visually
         tau_th = max(0.01, time_duration_s / 4.0) 
         alpha = 1.0 - np.exp(-dt_float / tau_th) 
         for i in range(1, len(vin)):
             power_factor = vin[i] / VMAX
-            target_temp = 25.0 + (power_factor * 200.0) # Scales to 225C max
+            target_temp = 25.0 + (power_factor * 200.0)
             temp[i] = temp[i-1] + alpha * (target_temp - temp[i-1])
         return temp
         
@@ -148,23 +147,60 @@ output = get_device_response(device, pwm, dt, time_window)
 metrics = {"mean": float(np.mean(output)), "rms": float(np.sqrt(np.mean(output ** 2))), "min": float(np.min(output)), "max": float(np.max(output))}
 
 # =============================================================================
-# OUTPUT & GRAPHS
+# OUTPUT & GRAPHS (FIXED SCALING DUAL Y-AXIS)
 # =============================================================================
 st.subheader("📈 Waveform Output")
-fig, ax = plt.subplots(figsize=(13, 5))
-if graph_mode in ["Both", "Separate Subplots"]:
-    ax.plot(t, pwm, linestyle="--", linewidth=1.5, alpha=0.7, label="PWM Input")
-    ax.plot(t, output, linewidth=2.5, label=f"{device.capitalize()} Output")
-    ax.legend()
-elif graph_mode == "PWM Only":
-    ax.plot(t, pwm, linestyle="--", linewidth=2, color="blue", label="PWM")
-elif graph_mode == "Device Only":
-    ax.plot(t, output, linewidth=2.5, color="orange", label="Output")
-ax.set_title(f"{device.capitalize()} Response")
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Amplitude")
-ax.grid(True, alpha=0.3)
-st.pyplot(fig)
+
+if graph_mode == "Separate Subplots":
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
+    ax1.plot(t, pwm, linestyle="--", linewidth=1.5, color="#1f77b4", label="PWM Input (V)")
+    ax1.set_title("PWM Input Signal")
+    ax1.set_ylabel("Voltage (V)")
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc="upper right")
+    
+    ax2.plot(t, output, linewidth=2.5, color="#ff7f0e", label=f"{device.capitalize()} Output")
+    ax2.set_title(f"{device.capitalize()} Response")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Amplitude")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc="upper right")
+    plt.tight_layout()
+    st.pyplot(fig)
+
+else:
+    fig, ax = plt.subplots(figsize=(13, 5))
+    if graph_mode == "Both":
+        ax.plot(t, pwm, linestyle="--", linewidth=1.5, alpha=0.7, color="#1f77b4", label="PWM Input (V)")
+        ax.set_ylabel("PWM Logic Level (V)", color="#1f77b4")
+        ax.tick_params(axis='y', labelcolor="#1f77b4")
+        
+        # Dual Y-Axis for devices with completely different scales
+        if device in ["heater", "motor"]:
+            ax2 = ax.twinx()
+            ax2.plot(t, output, linewidth=2.5, color="#ff7f0e", label=f"{device.capitalize()} Output")
+            ax2.set_ylabel("Temperature (°C)" if device == "heater" else "Speed (RPM)", color="#ff7f0e")
+            ax2.tick_params(axis='y', labelcolor="#ff7f0e")
+            ax.legend(loc="upper left")
+            ax2.legend(loc="upper right")
+        else:
+            ax.plot(t, output, linewidth=2.5, color="#ff7f0e", label=f"{device.capitalize()} Output")
+            ax.legend(loc="upper right")
+
+    elif graph_mode == "PWM Only":
+        ax.plot(t, pwm, linestyle="--", linewidth=2, color="#1f77b4", label="PWM Input")
+        ax.set_ylabel("Voltage (V)")
+        ax.legend(loc="upper right")
+
+    elif graph_mode == "Device Only":
+        ax.plot(t, output, linewidth=2.5, color="#ff7f0e", label=f"{device.capitalize()} Output")
+        ax.set_ylabel("Amplitude")
+        ax.legend(loc="upper right")
+
+    ax.set_title(f"{device.capitalize()} Response" if graph_mode != "PWM Only" else "PWM Input Signal")
+    ax.set_xlabel("Time (s)")
+    ax.grid(True, alpha=0.3)
+    st.pyplot(fig)
 
 buffer = StringIO(); buffer.write("time,signal\n")
 for ti, yi in zip(t, output): buffer.write(f"{ti},{yi}\n")
@@ -190,6 +226,30 @@ with col2:
     insights = get_smart_insights(device, duty_cycle, frequency)
     for insight in insights:
         st.markdown(insight)
+
+# =============================================================================
+# DYNAMIC ARDUINO CODE BLOCK
+# =============================================================================
+st.markdown("---")
+st.subheader("🔌 Dynamic Arduino Code")
+st.markdown(f"This code automatically updates based on your selected **PWM Pin ({pin})** and **Duty Cycle ({duty_cycle}%)**.")
+
+# Map 0-100% duty cycle to Arduino's 8-bit analogWrite scale (0-255)
+pwm_8bit = int((duty_cycle / 100.0) * 255)
+
+arduino_code = f"""int pwmPin = {pin};
+
+void setup() {{
+    // Set the selected pin as an output
+    pinMode(pwmPin, OUTPUT);
+}}
+
+void loop() {{
+    // {duty_cycle}% Duty Cycle equates to {pwm_8bit} on an 8-bit scale (0-255)
+    analogWrite(pwmPin, {pwm_8bit});
+}}
+"""
+st.code(arduino_code, language="cpp")
 
 # =============================================================================
 # LIVE DEVICE DYNAMICS (PERFECT SYNC)
