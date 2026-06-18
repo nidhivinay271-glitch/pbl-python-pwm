@@ -41,24 +41,31 @@ def first_order_filter(vin, dt, tau):
         y[i] = y[i - 1] + alpha * (vin[i] - y[i - 1])
     return y
 
-def get_device_response(device, vin, dt, R_cap=1000, C_cap=10e-6, R_ind=3.0, L_ind=10e-3):
+def get_device_response(device, vin, dt, time_duration_s, R_cap=1000, C_cap=10e-6, R_ind=3.0, L_ind=10e-3):
     dt_float = float(dt)
+    
     if device == "capacitor":
         return first_order_filter(vin, dt_float, R_cap * C_cap)
+        
     elif device == "inductor":
         current = np.zeros_like(vin)
         for i in range(1, len(vin)):
             current[i] = current[i-1] + ((vin[i-1] - R_ind * current[i-1]) / L_ind) * dt_float
         return np.clip(current * R_ind, 0, VMAX)
+        
     elif device == "led":
         return np.clip(np.where(vin > 2.0, ((vin - 2.0) / (VMAX - 2.0)) * VMAX, 0.0), 0, VMAX)
+        
     elif device == "diode":
         return np.where(vin > 0.7, vin - 0.7, 0.0)
+        
     elif device == "zener":
         vout = np.where(vin < 0.7, 0.0, np.where(vin < 3.3, vin - 0.7, 3.3))
         return first_order_filter(vout, dt_float, tau=0.0002)
+        
     elif device == "transistor":
         return first_order_filter(np.where(vin > 1.2, VMAX, 0.0), dt_float, tau=0.00008)
+        
     elif device == "motor":
         Ke, Kt, B, J = 0.01, 0.01, 0.00001, 0.0001
         current, speed = np.zeros_like(vin), np.zeros_like(vin)
@@ -66,12 +73,18 @@ def get_device_response(device, vin, dt, R_cap=1000, C_cap=10e-6, R_ind=3.0, L_i
             current[i] = max(current[i-1] + ((vin[i-1] - 2.0 * current[i-1] - Ke*speed[i-1]) / 0.001 * dt_float), 0.0)
             speed[i] = max(speed[i-1] + ((Kt*current[i] - B*speed[i-1]) / J * dt_float), 0.0)
         return np.clip((speed / (VMAX / Ke)) * VMAX, 0, VMAX)
+        
     elif device == "heater":
         temp = np.full_like(vin, 25.0)
-        alpha = 1.0 - np.exp(-dt_float / 2.0) 
+        # FIX: Dynamically scale thermal tau based on time window to GUARANTEE an exponential curve visually
+        tau_th = max(0.01, time_duration_s / 4.0) 
+        alpha = 1.0 - np.exp(-dt_float / tau_th) 
         for i in range(1, len(vin)):
-            temp[i] = temp[i-1] + alpha * ((25.0 + ((vin[i]**2) / 12.0) * 5.0) - temp[i-1])
+            power_factor = vin[i] / VMAX
+            target_temp = 25.0 + (power_factor * 200.0) # Scales to 225C max
+            temp[i] = temp[i-1] + alpha * (target_temp - temp[i-1])
         return temp
+        
     elif device == "buzzer":
         return first_order_filter(np.where(vin > 2.5, 1.0, 0.0), dt_float, 0.05) * VMAX
 
@@ -80,12 +93,9 @@ def get_device_response(device, vin, dt, R_cap=1000, C_cap=10e-6, R_ind=3.0, L_i
 # =============================================================================
 def get_smart_insights(device, dc, freq):
     insights = []
-    if dc <= 30:
-        insights.append("🌱 **Mode: ECO** - Low power consumption, minimal heat generation.")
-    elif dc <= 70:
-        insights.append("⚖️ **Mode: NEUTRAL** - Balanced performance and energy use.")
-    else:
-        insights.append("🚀 **Mode: PERFORMANCE** - Maximum output, highest current draw.")
+    if dc <= 30: insights.append("🌱 **Mode: ECO** - Low power consumption, minimal heat generation.")
+    elif dc <= 70: insights.append("⚖️ **Mode: NEUTRAL** - Balanced performance and energy use.")
+    else: insights.append("🚀 **Mode: PERFORMANCE** - Maximum output, highest current draw.")
 
     if device == "motor":
         if freq < 100: insights.append("🔴 **Poor:** Frequency too low. Motor will physically vibrate and jerk.")
@@ -134,7 +144,7 @@ graph_mode = st.sidebar.selectbox("Advanced Graph View", ["Both", "PWM Only", "D
 pin = st.sidebar.selectbox("PWM Pin", [3, 5, 6, 9, 10, 11])
 
 t, pwm, dt = generate_pwm_signal(duty_cycle, frequency, time_window)
-output = get_device_response(device, pwm, dt)
+output = get_device_response(device, pwm, dt, time_window)
 metrics = {"mean": float(np.mean(output)), "rms": float(np.sqrt(np.mean(output ** 2))), "min": float(np.min(output)), "max": float(np.max(output))}
 
 # =============================================================================
@@ -300,7 +310,7 @@ elif advanced_feature == "Comparison Mode":
     fig, ax = plt.subplots(figsize=(12, 5))
     for d in compare_values:
         t_cmp, pwm_cmp, dt_cmp = generate_pwm_signal(d, frequency, time_window)
-        out_cmp = get_device_response(device, pwm_cmp, dt_cmp)
+        out_cmp = get_device_response(device, pwm_cmp, dt_cmp, time_window)
         ax.plot(t_cmp, out_cmp, linewidth=2, label=f"{d}% Duty")
     ax.set_title(f"{device.capitalize()} Comparison")
     ax.set_xlabel("Time (s)")
@@ -332,7 +342,7 @@ elif advanced_feature == "Real Component Sliders":
     st.subheader("🎛 Real Component Controls")
     if device in ["capacitor", "inductor"]:
         R = st.slider("Resistance (Ohm)", 1, 1000, 100)
-        mod_out = get_device_response(device, pwm, dt, R_cap=R, R_ind=R)
+        mod_out = get_device_response(device, pwm, dt, time_window, R_cap=R, R_ind=R)
         fig, ax = plt.subplots()
         ax.plot(t, mod_out, label="Modified Output")
         st.pyplot(fig)
@@ -353,39 +363,44 @@ elif advanced_feature == "Safety Limits & Stress Analysis":
         st.success(f"System operating within safe thermal and switching limits for a generic {device}.")
 
 # =============================================================================
-# FOOLPROOF ENGINEERING AI BOT (NO DEPENDENCIES REQUIRED)
+# PURE PYTHON NLP AI CHATBOT (NO DEPENDENCIES REQUIRED - WILL NEVER CRASH)
 # =============================================================================
 st.markdown("---")
 st.subheader("🤖 PWM AI Engineering Assistant")
 st.markdown("Ask the AI about the physics, math, or how any device reacts to PWM in the real world.")
 
-# Giant, hardcoded dictionary. Never fails, never needs external libraries.
-AI_DATABASE = {
-    "pwm": "### ⚡ Pulse Width Modulation (PWM) Theory\nPWM encodes a continuous analog value into a pulsing digital signal. Because microcontrollers (like Arduino) cannot output varying voltages natively, they rapidly switch the pin ON and OFF.\n\n* **Formula:** V_avg = Duty_Cycle × V_max\n* **Efficiency:** A transistor driving a PWM signal is highly efficient compared to a linear resistor.",
-    "duty": "### ⏱️ Duty Cycle Explained\nThe Duty Cycle is the percentage of one period in which a signal is active (HIGH).\n\n* **0%:** Completely flat (0V). Device is OFF.\n* **50%:** HIGH half the time, LOW half the time. Average voltage is half of max.\n* **100%:** Constant DC voltage. Device is fully ON.",
-    "freq": "### 🌊 Frequency & Simulation Time\n**Frequency (Hz)** dictates how many times per second the PWM cycle repeats.\n\nElectrical devices (Capacitors, Inductors) need high frequencies for smooth outputs. Mechanical/Thermal devices (Motors, Heaters) are slow and naturally smooth out even low frequencies (10 Hz).",
-    "motor": "### ⚙️ DC Motor Physics\nA DC Motor converts electrical PWM energy into mechanical rotation. It has **electrical inertia** (Inductance) which smooths current spikes, and **mechanical inertia** (Rotor Mass) which smooths physical speed.\n\nPWM is ideal because it provides full 5V/12V 'kicks' of torque, preventing stalls at low speeds.",
-    "cap": "### 🔋 Capacitor & RC Filters\nA Capacitor stores electrical energy. Paired with a Resistor, it forms an **RC Low-Pass Filter**. It opposes sudden changes in voltage. If the PWM frequency is fast enough, the capacitor averages the PWM into a clean, flat DC voltage.",
-    "ind": "### 🌀 Inductor & RL Circuits\nAn Inductor stores energy in a magnetic field and opposes sudden changes in **current**. When PWM turns ON, it forces current to ramp up slowly. This is the foundational principle of Buck Converters.",
-    "heat": "### 🔥 Resistive Heaters\nA Heater converts electrical power into thermal energy. Due to massive **thermal inertia**, heaters react very slowly. Therefore, PWM frequencies for heaters can be extremely low (e.g., 1 Hz).",
-    "led": "### 💡 Light Emitting Diode (LED)\nLEDs react to electricity almost instantly. If you apply a 50% PWM, the LED flashes ON and OFF at full brightness. However, frequencies above ~100 Hz blend together due to human **Persistence of Vision**, making it appear 50% bright.",
-    "dio": "### ➡️ Standard Diode\nA Diode is a one-way check valve for current. Passing through the P-N junction results in a continuous voltage drop of about 0.7V.",
-    "zen": "### ⚡ Zener Diode\nZener diodes safely break down and conduct backwards when a specific **Zener Voltage (Vz)** is reached. They are used to clamp and protect sensitive microcontrollers from high logic signals.",
-    "tran": "### 🔀 Transistor\nTransistors act as massive electronic switches. By feeding a microcontroller's tiny PWM signal into the Gate of a MOSFET, it perfectly mirrors the PWM signal but allows massive currents to flow to heavy loads like motors.",
-    "buzz": "### 🔊 Piezo Buzzer\nA buzzer converts PWM into acoustic waves. **Frequency** controls the pitch (note), and **Duty Cycle** controls the volume (50% is the loudest because it allows maximum crystal flex)."
-}
+def get_smart_ai_response(user_query):
+    q = user_query.lower()
+    
+    # EXACT intent matching to differentiate "what is" vs "why use"
+    is_what = any(k in q for k in ["what", "define", "meaning", "how does it work", "explain pwm"])
+    is_why = any(k in q for k in ["why", "advantage", "benefit", "reason", "purpose"])
+    
+    if is_what and "pwm" in q:
+        return "### ⚡ What is PWM?\n**Pulse Width Modulation (PWM)** is a digital technique used to mimic analog results. Because microcontrollers (like Arduino) cannot output varying voltages natively (they only output 0V or 5V), they rapidly switch the pin ON and OFF to create a specific 'average' voltage.\n\n* **Formula:** $V_{avg} = Duty\\_Cycle \\times V_{max}$"
+        
+    if is_why and "pwm" in q:
+        return "### 🤔 Why use PWM?\nEfficiency! If you use a resistor to drop 5V down to 2.5V, the resistor burns the extra energy as heat. With PWM, a transistor is either fully ON (near zero resistance) or fully OFF (zero current). This means very little power is wasted, making it ideal for high-current loads like motors and heaters."
+        
+    # Device physics matching
+    if "motor" in q: return "### ⚙️ DC Motor Physics\nA motor converts electrical PWM energy into mechanical rotation. It has **electrical inertia** (Inductance) which smooths current spikes, and **mechanical inertia** (Rotor Mass) which smooths physical speed. PWM provides full 5V 'kicks' of torque, preventing stalls at low speeds."
+    if "capacitor" in q or "rc" in q: return "### 🔋 Capacitor & RC Filters\nA Capacitor stores electrical energy. Paired with a Resistor, it forms an **RC Low-Pass Filter**. It opposes sudden changes in voltage. If the PWM frequency is fast enough, the capacitor averages the PWM into a clean, flat DC voltage."
+    if "inductor" in q or "rl" in q: return "### 🌀 Inductor & RL Circuits\nAn Inductor stores energy in a magnetic field and opposes sudden changes in **current**. When PWM turns ON, it forces current to ramp up slowly. This is the foundational principle of Buck Converters."
+    if "heater" in q or "thermal" in q: return "### 🔥 Resistive Heaters\nDue to massive **thermal inertia**, heaters react very slowly. Therefore, PWM frequencies for heaters can be extremely low (e.g., 1 Hz). The ambient environment acts as a natural low-pass filter."
+    if "led" in q or "light" in q: return "### 💡 Light Emitting Diode (LED)\nLEDs react to electricity instantly. If you apply a 50% PWM, the LED flashes ON and OFF at full brightness. Frequencies above ~100 Hz blend together due to human **Persistence of Vision**, making it appear 50% bright."
+    if "diode" in q: return "### ➡️ Standard Diode\nA Diode is a one-way check valve for current. Passing through the P-N junction results in a continuous voltage drop of about 0.7V."
+    if "zener" in q: return "### ⚡ Zener Diode\nZener diodes safely break down and conduct backwards when a specific **Zener Voltage (Vz)** is reached. They clamp and protect sensitive microcontrollers from high logic signals."
+    if "transistor" in q or "mosfet" in q: return "### 🔀 Transistor\nTransistors act as massive electronic switches. By feeding a microcontroller's tiny PWM signal into the Gate of a MOSFET, it mirrors the PWM signal but allows massive currents to flow to heavy loads."
+    if "buzzer" in q or "sound" in q: return "### 🔊 Piezo Buzzer\nA buzzer converts PWM into acoustic waves. **Frequency** controls the pitch (note), and **Duty Cycle** controls the volume (50% is the loudest because it allows maximum crystal flex)."
+    if "duty" in q or "cycle" in q: return "### ⏱️ Duty Cycle Explained\nThe Duty Cycle is the percentage of one period in which a signal is active (HIGH).\n\n* **0%:** Completely flat (0V). Device is OFF.\n* **50%:** HIGH half the time, LOW half the time. Average voltage is half of max.\n* **100%:** Constant DC voltage. Device is fully ON."
+    if "freq" in q or "time" in q: return "### 🌊 Frequency & Simulation Time\n**Frequency (Hz)** dictates how many times per second the PWM cycle repeats. Electrical devices need high frequencies for smooth outputs. Mechanical/Thermal devices are slow and naturally smooth out even low frequencies."
 
-query = st.text_input("Ask a question:", placeholder="e.g., 'Explain motor physics' or 'What is duty cycle?'").lower()
+    return "🤔 I didn't catch a specific concept. Try asking 'What is PWM?', 'Why use PWM?', or ask about a device like 'How do motors react to PWM?'"
+
+query = st.text_input("Ask a question:", placeholder="e.g., 'What is PWM?', 'Why use PWM?', or 'Explain motor physics'")
 
 if query:
-    found_match = False
-    with st.spinner("Searching Engineering Database..."):
-        time.sleep(0.5) # Simulate thought for UI feel
-        for keyword, explanation in AI_DATABASE.items():
-            if keyword in query:
-                st.markdown(f'<div style="background-color:#1E1E2E; padding:20px; border-radius:10px; border-left: 5px solid #00ff87;">{explanation}</div>', unsafe_allow_html=True)
-                found_match = True
-                break
-        
-        if not found_match:
-            st.warning("🤔 I didn't catch a specific component or concept in your question. Try asking about a specific device like **motors, capacitors, LEDs, heaters**, or core concepts like **duty cycle** and **frequency**.")
+    with st.spinner("Analyzing Engineering Database..."):
+        time.sleep(0.4) # UI loading feel
+        response = get_smart_ai_response(query)
+        st.markdown(f'<div style="background-color:#1E1E2E; padding:20px; border-radius:10px; border-left: 5px solid #00ff87;">{response}</div>', unsafe_allow_html=True)
