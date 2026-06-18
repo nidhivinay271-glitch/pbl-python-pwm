@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import base64
+import pandas as pd
 from io import StringIO
 import time
 
@@ -182,7 +183,7 @@ b64 = base64.b64encode(buffer.getvalue().encode()).decode()
 st.markdown(f'<a href="data:file/csv;base64,{b64}" download="pwm_output.csv">Download CSV Data</a>', unsafe_allow_html=True)
 
 # =============================================================================
-# METRICS & SMART INSIGHTS (RED/YELLOW/GREEN BLOCK)
+# METRICS & SMART INSIGHTS (NEW R/Y/G BLOCK)
 # =============================================================================
 col1, col2 = st.columns([1, 1])
 
@@ -203,189 +204,4 @@ with col2:
 
 # =============================================================================
 # LIVE DEVICE DYNAMICS (FIXED PHYSICS-SYNCED ANIMATION)
-# =============================================================================
-st.markdown("---")
-st.subheader("🎞 Device Animation")
-
-if st.button("▶ Run Physics Animation", key="run_anim"):
-    placeholder = st.empty()
-    
-    # ABSOLUTE PHYSICS SCALING FOR PERFECT GRAPH SYNC
-    if device == "heater":
-        v_anim = np.clip((output - 25.0) / (250.0 - 25.0), 0.0, 1.0)
-    else:
-        v_anim = np.clip(output / VMAX, 0.0, 1.0)
-
-    step = max(1, len(v_anim) // 120)
-
-    for i in range(0, len(v_anim), step):
-        v = v_anim[i]
-        current_time = t[i]
-
-        if device == "led":
-            glow, size = int(50 + v * 205), 80 + int(v * 40)
-            html = f'<div style="text-align:center; font-size:{size}px; filter: drop-shadow(0 0 {20*v}px rgb(255,255,0));">💡<br><h3 style="color:rgb({glow},{glow},0);">Brightness: {int(v * 100)}%</h3><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "motor":
-            html = f'<div style="text-align:center;"><div style="font-size:{80 + int(v*40)}px; transform: rotate({v*360*5}deg);">⚙️</div><br><h3>Speed: {int(v * 100)}%</h3><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "heater":
-            html = f'<div style="text-align:center;"><div style="font-size:{80 + int(v*20)}px;">🔥</div><br><h3 style="color:rgb({int(100+v*155)},50,0);">Temp: {int(25 + v * 225)} °C</h3><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "capacitor":
-            fill = int(v * 100)
-            html = f'<div style="text-align:center; font-size:{70 + int(v*20)}px;">🔋<br><div style="width:300px; height:30px; margin:auto; border:2px solid white; border-radius:10px;"><div style="width:{fill}%; height:100%; background:lime; border-radius:8px;"></div></div><h3>Charge: {fill}%</h3><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "inductor":
-            html = f'<div style="text-align:center; font-size:{80 + int(v*20)}px;">🌀<br><h3>{"➰" * int(v*8)}</h3><p>Flux: {int(v * 100)}% | Time: {current_time:.3f} s</p></div>'
-        elif device == "buzzer":
-            state = "🔊" if v > 0.5 else "🔈"
-            html = f'<div style="text-align:center;"><div style="font-size:{80 + int(v*30)}px;">{state}</div><h2>Sound Level</h2><h3>{int(v * 100)}%</h3><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "diode":
-            state = "Conducting ✅" if v > 0.2 else "Blocking ❌"
-            html = f'<div style="text-align:center;"><div style="font-size:90px;">➡️</div><h2>{state}</h2><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "zener":
-            state = "Voltage Clamped ⚡" if v > 0.7 else "Normal"
-            html = f'<div style="text-align:center;"><div style="font-size:{80 + int(v*20)}px;">⚡</div><h2>{state}</h2><p>Regulation: {int(v * 100)}%</p><p>Time: {current_time:.3f} s</p></div>'
-        elif device == "transistor":
-            state = "ON 🟢" if v > 0.5 else "OFF 🔴"
-            html = f'<div style="text-align:center;"><div style="font-size:{80 + int(v*15)}px;">🔀</div><h2>{state}</h2><p>Switching Level: {int(v * 100)}%</p><p>Time: {current_time:.3f} s</p></div>'
-        else:
-            html = f'<div style="text-align:center; font-size:{80 + int(v*20)}px;">⚡<br><h3>State: {int(v * 100)}%</h3><p>Time: {current_time:.3f} s</p></div>'
-            
-        placeholder.markdown(html, unsafe_allow_html=True)
-        time.sleep(0.02)
-
-# =============================================================================
-# ADVANCED FEATURES (FULLY RESTORED LIST)
-# =============================================================================
-st.markdown("---")
-st.header("🚀 Advanced Engineering Features")
-
-advanced_feature = st.selectbox(
-    "Select Advanced Feature", 
-    [
-        "None", 
-        "FFT Analyzer", 
-        "Device Theory Panel", 
-        "Oscilloscope Theme", 
-        "Comparison Mode", 
-        "Efficiency Calculator", 
-        "Circuit Diagram Panel", 
-        "Real Component Sliders"
-    ]
-)
-
-if advanced_feature == "FFT Analyzer":
-    st.subheader("🎵 FFT Frequency Spectrum")
-    fft = np.fft.fft(output - np.mean(output))
-    freqs = np.fft.fftfreq(len(output), d=dt)
-    positive = freqs > 0
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(freqs[positive], np.abs(fft[positive]), linewidth=1.5)
-    ax.set_xlim(0, frequency * 10)
-    ax.set_title("Frequency Spectrum")
-    ax.grid(True, alpha=0.3)
-    st.pyplot(fig)
-
-elif advanced_feature == "Device Theory Panel":
-    st.subheader("📘 Device Theory")
-    theory = {
-        "capacitor": "Capacitors oppose sudden voltage change.\n\nPWM Result:\n- Smooth charging/discharging curve\n- Converts PWM into analog-like voltage\n- Higher frequency = smoother output",
-        "inductor": "Inductors oppose sudden current change.\n\nPWM Result:\n- Current ramps gradually\n- Triangular ripple waveform possible\n- Used in buck converters and motors",
-        "led": "LEDs respond to average current.\n\nPWM Result:\n- Brightness controlled by duty cycle\n- High PWM frequency removes flicker",
-        "diode": "Diodes conduct only in forward bias.\n\nPWM Result:\n- Acts like rectifier\n- Blocks reverse conduction",
-        "zener": "Zener diode regulates voltage.\n\nPWM Result:\n- Output clamps near breakdown voltage\n- Used for voltage protection",
-        "transistor": "Transistor acts as electronic switch.\n\nPWM Result:\n- ON/OFF switching waveform\n- Used for motor and LED control",
-        "motor": "Motors have inertia.\n\nPWM Result:\n- Speed changes gradually\n- Mechanical lag smooths PWM",
-        "heater": "Heaters have thermal inertia.\n\nPWM Result:\n- Temperature changes slowly\n- PWM controls average heating power",
-        "buzzer": "Buzzers convert PWM into sound.\n\nPWM Result:\n- Frequency controls tone\n- Duty cycle affects loudness"
-    }
-    st.info(theory.get(device, "No theory available."))
-
-elif advanced_feature == "Oscilloscope Theme":
-    st.subheader("🖥 Oscilloscope Display")
-    fig, ax = plt.subplots(figsize=(12, 5), facecolor="black")
-    ax.set_facecolor("black")
-    ax.plot(t, output, linewidth=2, color="lime")
-    ax.plot(t, pwm, linestyle="--", alpha=0.4, color="cyan")
-    ax.set_title("Oscilloscope View", color="white")
-    ax.set_xlabel("Time (s)", color="white")
-    ax.set_ylabel("Amplitude", color="white")
-    ax.tick_params(colors="white")
-    ax.grid(True, color="green", alpha=0.2)
-    st.pyplot(fig)
-
-elif advanced_feature == "Comparison Mode":
-    st.subheader("🔬 Duty Cycle Comparison")
-    compare_values = [20, 50, 80]
-    fig, ax = plt.subplots(figsize=(12, 5))
-    for d in compare_values:
-        t_cmp, pwm_cmp, dt_cmp = generate_pwm_signal(d, frequency, time_window)
-        out_cmp = get_device_response(device, pwm_cmp, dt_cmp)
-        ax.plot(t_cmp, out_cmp, linewidth=2, label=f"{d}% Duty")
-    ax.set_title(f"{device.capitalize()} Comparison")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Output")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    st.pyplot(fig)
-
-elif advanced_feature == "Efficiency Calculator":
-    st.subheader("⚡ Efficiency Calculator")
-    eff = (duty_cycle / 100.0) * 100 if device == "heater" else (np.mean(output) / VMAX) * 100
-    c1, c2 = st.columns(2)
-    c1.metric("Estimated Efficiency", f"{eff:.1f}%")
-    c2.metric("Estimated Loss", f"{100-eff:.1f}%")
-
-elif advanced_feature == "Circuit Diagram Panel":
-    st.subheader("🔌 Basic Circuit Diagram")
-    diagrams = {
-        "led": "PWM Pin ---- Resistor ---- LED ---- GND", 
-        "motor": "PWM Pin ---- MOSFET ---- Motor ---- Supply\n                     |\n                    Diode", 
-        "capacitor": "PWM ---- RC Filter ---- GND",
-        "inductor": "PWM ---- Inductor ---- Load",
-        "heater": "PWM ---- MOSFET ---- Heater",
-        "transistor": "PWM ---- Base Resistor ---- Transistor"
-    }
-    st.code(diagrams.get(device, "Circuit not available"))
-
-elif advanced_feature == "Real Component Sliders":
-    st.subheader("🎛 Real Component Controls")
-    if device in ["capacitor", "inductor"]:
-        R = st.slider("Resistance (Ohm)", 1, 1000, 100)
-        mod_out = get_device_response(device, pwm, dt, R_cap=R, R_ind=R)
-        fig, ax = plt.subplots()
-        ax.plot(t, mod_out, label="Modified Output")
-        st.pyplot(fig)
-    else: st.info("Sliders apply to RC/RL components.")
-
-# =============================================================================
-# KNOWLEDGE BASE & AI CHATBOT
-# =============================================================================
-### START_OF_AI_KNOWLEDGE_BASE ###
-KNOWLEDGE_BASE = [
-    {"topic": "pwm general", "text": "PWM controls average power using ON/OFF switching. Formula: V_avg = Duty Cycle * Vmax."},
-    {"topic": "duty cycle", "text": "Duty Cycle is the percentage of one period in which a signal is active (HIGH)."},
-    {"topic": "motor", "text": "Motors use electrical and mechanical inertia to smooth PWM into steady rotational torque."},
-    {"topic": "capacitor rc", "text": "RC Low-Pass Filters average high-frequency PWM into steady DC voltage via charge/discharge curves."},
-    {"topic": "led", "text": "LEDs flash instantly with PWM. Frequencies above 100Hz trick the human eye into seeing dimming."},
-]
-### END_OF_AI_KNOWLEDGE_BASE ###
-
-st.markdown("---")
-st.subheader("🤖 PWM AI Engineering Assistant")
-query = st.text_input("Ask about PWM, physics, or devices:")
-
-if query:
-    if not _HAS_SENTENCE_TRANSFORMERS:
-        st.error("⚠️ AI requires `sentence-transformers` and `scikit-learn` installed in requirements.txt.")
-    else:
-        with st.spinner("Analyzing..."):
-            model = SentenceTransformer("all-MiniLM-L6-v2")
-            kb_texts = [x["text"] for x in KNOWLEDGE_BASE]
-            embeddings = model.encode(kb_texts, normalize_embeddings=True)
-            q_emb = model.encode([query], normalize_embeddings=True)
-            scores = cosine_similarity(q_emb, embeddings)[0]
-            idx = int(np.argmax(scores))
-            
-            if scores[idx] < 0.2:
-                st.warning("I'm not sure. Try asking about motors, capacitors, or duty cycle!")
-            else:
-                st.success(KNOWLEDGE_BASE[idx]["text"])
+#
